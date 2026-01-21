@@ -2,8 +2,8 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Hello, AR World! • A-Frame</title>
-    <meta name="description" content="Hello, AR World! • A-Frame">
+    <title>Winter AR • Place Snowmen & Trees</title>
+    <meta name="description" content="Winter-themed AR: tap to place snowmen and pine trees">
     <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
     <!-- script src="https://aframe.io/aframe/dist/aframe-master.min.js"></script -->
     <script>
@@ -17,25 +17,280 @@
           }
         }
       });
+
+      /**
+       * Simple "tap to place" spawner.
+       * Uses A-Frame's built-in ar-hit-test to update a reticle entity position.
+       * On tap/click, clones a prefab and places it at the reticle.
+       */
+      AFRAME.registerComponent('tap-to-place', {
+        schema: {
+          reticle: {type: 'selector'},
+          prefabSnowman: {type: 'selector'},
+          prefabTree: {type: 'selector'},
+          // "alternate" toggles between snowman and tree each tap, "random" picks randomly.
+          mode: {default: 'alternate'}
+        },
+        init() {
+          this._next = 'snowman';
+          this._onPlace = this._onPlace.bind(this);
+          this._onEnterVR = this._onEnterVR.bind(this);
+          this._onExitVR = this._onExitVR.bind(this);
+
+          // Desktop + mobile (non-XR) interactions.
+          this.el.sceneEl.addEventListener('click', this._onPlace);
+          this.el.sceneEl.addEventListener('touchstart', this._onPlace, {passive: true});
+
+          // WebXR "select" (in AR mode, a screen tap triggers select).
+          this.el.sceneEl.addEventListener('enter-vr', this._onEnterVR);
+          this.el.sceneEl.addEventListener('exit-vr', this._onExitVR);
+        },
+        remove() {
+          this.el.sceneEl.removeEventListener('click', this._onPlace);
+          this.el.sceneEl.removeEventListener('touchstart', this._onPlace);
+          this.el.sceneEl.removeEventListener('enter-vr', this._onEnterVR);
+          this.el.sceneEl.removeEventListener('exit-vr', this._onExitVR);
+          this._detachSelectListener();
+        },
+        _detachSelectListener() {
+          if (this._xrSession) {
+            this._xrSession.removeEventListener('select', this._onPlace);
+            this._xrSession = null;
+          }
+        },
+        _onEnterVR() {
+          // Attach to WebXR session if present.
+          const xr = this.el.sceneEl.renderer && this.el.sceneEl.renderer.xr;
+          if (!xr || !xr.getSession) return;
+          const session = xr.getSession();
+          if (!session) return;
+
+          this._detachSelectListener();
+          this._xrSession = session;
+          session.addEventListener('select', this._onPlace);
+        },
+        _onExitVR() {
+          this._detachSelectListener();
+        },
+        _choosePrefab() {
+          if (this.data.mode === 'random') {
+            return Math.random() < 0.5 ? 'snowman' : 'tree';
+          }
+          const chosen = this._next;
+          this._next = this._next === 'snowman' ? 'tree' : 'snowman';
+          return chosen;
+        },
+        _onPlace() {
+          const reticle = this.data.reticle;
+          if (!reticle) return;
+
+          // If reticle isn't visible yet, hit-test hasn't found a plane.
+          if (!reticle.getAttribute('visible')) return;
+
+          const kind = this._choosePrefab();
+          const prefab = kind === 'snowman' ? this.data.prefabSnowman : this.data.prefabTree;
+          if (!prefab) return;
+
+          const placed = prefab.cloneNode(true);
+          placed.removeAttribute('id');
+          placed.setAttribute('visible', true);
+
+          // Use world position of the reticle and place in scene-local coords.
+          const worldPos = new THREE.Vector3();
+          reticle.object3D.getWorldPosition(worldPos);
+          placed.object3D.position.copy(worldPos);
+
+          // Slightly randomize yaw so copies don't look identical.
+          placed.object3D.rotation.y = (Math.random() * Math.PI * 2);
+
+          this.el.sceneEl.appendChild(placed);
+        }
+      });
+
+      /**
+       * Desktop fallback for when WebXR AR hit-test isn't available.
+       * - Shows a ground plane.
+       * - Moves the reticle to where the mouse ray intersects the plane.
+       * - Lets you click to place (same tap-to-place component).
+       *
+       * This is NOT real AR plane detection; it’s a “how we would do it” simulation
+       * suitable for presenting on non-Android devices.
+       */
+      AFRAME.registerComponent('desktop-hit-test', {
+        schema: {
+          reticle: {type: 'selector'},
+          ground: {type: 'selector'}
+        },
+        init() {
+          this._onMouseMove = this._onMouseMove.bind(this);
+          this._onEnterVR = this._onEnterVR.bind(this);
+          this._onExitVR = this._onExitVR.bind(this);
+          this._raycaster = new THREE.Raycaster();
+          this._mouse = new THREE.Vector2();
+          this._tmpPoint = new THREE.Vector3();
+
+          this.el.sceneEl.addEventListener('enter-vr', this._onEnterVR);
+          this.el.sceneEl.addEventListener('exit-vr', this._onExitVR);
+
+          // Default to desktop mode until we actually enter XR.
+          this._enableDesktopMode();
+        },
+        remove() {
+          this.el.sceneEl.removeEventListener('enter-vr', this._onEnterVR);
+          this.el.sceneEl.removeEventListener('exit-vr', this._onExitVR);
+          window.removeEventListener('mousemove', this._onMouseMove);
+        },
+        _enableDesktopMode() {
+          const {reticle, ground} = this.data;
+          if (ground) ground.setAttribute('visible', true);
+          if (reticle) reticle.setAttribute('visible', true);
+          window.addEventListener('mousemove', this._onMouseMove);
+        },
+        _disableDesktopMode() {
+          const {ground} = this.data;
+          if (ground) ground.setAttribute('visible', false);
+          window.removeEventListener('mousemove', this._onMouseMove);
+        },
+        _onEnterVR() {
+          // In real AR mode, ar-hit-test will drive the reticle; hide the desktop ground.
+          this._disableDesktopMode();
+        },
+        _onExitVR() {
+          // Back to desktop simulation mode.
+          this._enableDesktopMode();
+        },
+        _onMouseMove(e) {
+          const {reticle, ground} = this.data;
+          if (!reticle || !ground) return;
+
+          const sceneEl = this.el.sceneEl;
+          const camera = sceneEl.camera;
+          if (!camera) return;
+
+          const rect = sceneEl.canvas?.getBoundingClientRect();
+          if (!rect) return;
+
+          // Normalized Device Coordinates (-1..1).
+          this._mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+          this._mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+
+          this._raycaster.setFromCamera(this._mouse, camera);
+
+          // Intersect the ground plane mesh.
+          const groundObj = ground.getObject3D('mesh');
+          if (!groundObj) return;
+          const hits = this._raycaster.intersectObject(groundObj, true);
+          if (!hits || hits.length === 0) return;
+
+          this._tmpPoint.copy(hits[0].point);
+          reticle.object3D.position.copy(this._tmpPoint);
+          reticle.object3D.position.y += 0.001; // stop z-fighting with ground
+        }
+      });
     </script>
+    <style>
+      /* Small overlay hint (works on mobile + desktop). */
+      .hud {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        top: 12px;
+        z-index: 9999;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        color: #0b1b2b;
+        background: rgba(255, 255, 255, 0.75);
+        backdrop-filter: blur(6px);
+        border: 1px solid rgba(0,0,0,0.08);
+        border-radius: 12px;
+        padding: 10px 12px;
+        line-height: 1.2;
+        max-width: 520px;
+        margin: 0 auto;
+      }
+      .hud b { font-weight: 700; }
+      .hud small { opacity: 0.85; }
+    </style>
   </head>
   <body>
+    <div class="hud">
+      <b>Winter AR:</b> Tap to place a <b>snowman</b> or <b>pine tree</b> on the detected floor/table.
+      <br><small>Tip: move your phone to help it detect a flat surface.</small>
+    </div>
     <a-scene
       reflection="directionalLight: a-light[type=directional]"
-      ar-hit-test="target: #objects;"
+      ar-hit-test="target: #reticle;"
       renderer="colorManagement: true; exposure: 1; toneMapping: ACESFilmic"
       shadow="type: pcfsoft"
       xr-mode-ui="XRMode: xr"
+      tap-to-place="reticle: #reticle; prefabSnowman: #prefab-snowman; prefabTree: #prefab-tree; mode: alternate;"
+      desktop-hit-test="reticle: #reticle; ground: #desktop-ground;"
     >
-      <a-light type="directional" light="castShadow:true;" position="1 1 1" intensity="1.57" shadow-camera-automatic="#objects"></a-light>
+      <a-light type="directional" light="castShadow:true;" position="1 1 1" intensity="1.57" shadow-camera-automatic="#reticle"></a-light>
       <a-camera position="0 0.4 0" wasd-controls="acceleration:10;"></a-camera>
-      <a-entity id="objects" scale="0.2 0.2 0.2" position="0 0 -1" shadow>
-        <a-box position="-1 0.5 1" rotation="0 45 0" color="#4CC3D9"></a-box>
-        <a-sphere position="0 1.25 -1" radius="1.25" color="#EF2D5E"></a-sphere>
-        <a-cylinder position="1 0.75 1" radius="0.5" height="1.5" color="#FFC65D"></a-cylinder>
+
+      <!-- Reticle (moved by ar-hit-test). -->
+      <a-entity
+        id="reticle"
+        visible="false"
+        rotation="-90 0 0"
+      >
+        <a-ring radius-inner="0.03" radius-outer="0.04" color="#ffffff" material="opacity:0.85; transparent:true"></a-ring>
+        <a-ring radius-inner="0.041" radius-outer="0.045" color="#7dd3fc" material="opacity:0.9; transparent:true"></a-ring>
       </a-entity>
-      <a-plane follow-shadow="#objects" material="shader:shadow" shadow="cast:false;" rotation="-90 0 0" width="2" height="2"></a-plane>
-      <a-sky color="#ECECEC" hide-on-enter-ar></a-sky>
+
+      <!-- Desktop-only ground plane for simulating placement (hidden automatically in AR mode). -->
+      <a-plane
+        id="desktop-ground"
+        rotation="-90 0 0"
+        width="6"
+        height="6"
+        position="0 0 -2"
+        material="color:#e2e8f0; metalness:0.0; roughness:1.0;"
+        shadow="receive:true"
+        visible="true"
+      ></a-plane>
+
+      <!-- Prefabs (hidden; cloned on tap). -->
+      <a-entity id="prefab-snowman" visible="false" shadow scale="0.22 0.22 0.22">
+        <!-- body -->
+        <a-sphere radius="0.28" position="0 0.28 0" color="#f8fafc"></a-sphere>
+        <a-sphere radius="0.20" position="0 0.62 0" color="#f8fafc"></a-sphere>
+        <a-sphere radius="0.14" position="0 0.86 0" color="#f8fafc"></a-sphere>
+
+        <!-- eyes -->
+        <a-sphere radius="0.018" position="-0.045 0.90 0.12" color="#0b1b2b"></a-sphere>
+        <a-sphere radius="0.018" position="0.045 0.90 0.12" color="#0b1b2b"></a-sphere>
+
+        <!-- carrot nose -->
+        <a-cone radius-bottom="0.018" radius-top="0.001" height="0.09" position="0 0.86 0.165" rotation="90 0 0" color="#fb923c"></a-cone>
+
+        <!-- buttons -->
+        <a-sphere radius="0.015" position="0 0.66 0.19" color="#0b1b2b"></a-sphere>
+        <a-sphere radius="0.015" position="0 0.60 0.205" color="#0b1b2b"></a-sphere>
+        <a-sphere radius="0.015" position="0 0.54 0.19" color="#0b1b2b"></a-sphere>
+
+        <!-- hat -->
+        <a-cylinder radius="0.10" height="0.03" position="0 0.99 0" color="#111827"></a-cylinder>
+        <a-cylinder radius="0.07" height="0.12" position="0 1.06 0" color="#111827"></a-cylinder>
+        <a-torus radius="0.072" radius-tubular="0.01" position="0 1.02 0" rotation="90 0 0" color="#60a5fa"></a-torus>
+      </a-entity>
+
+      <a-entity id="prefab-tree" visible="false" shadow scale="0.26 0.26 0.26">
+        <!-- trunk -->
+        <a-cylinder radius="0.06" height="0.22" position="0 0.11 0" color="#7c2d12"></a-cylinder>
+        <!-- foliage (stacked cones) -->
+        <a-cone radius-bottom="0.23" radius-top="0.01" height="0.28" position="0 0.32 0" color="#166534"></a-cone>
+        <a-cone radius-bottom="0.19" radius-top="0.01" height="0.24" position="0 0.52 0" color="#15803d"></a-cone>
+        <a-cone radius-bottom="0.14" radius-top="0.01" height="0.20" position="0 0.69 0" color="#16a34a"></a-cone>
+        <!-- snow caps -->
+        <a-sphere radius="0.06" position="0.08 0.67 0.05" color="#f8fafc"></a-sphere>
+        <a-sphere radius="0.05" position="-0.09 0.53 -0.04" color="#f8fafc"></a-sphere>
+        <a-sphere radius="0.05" position="0.02 0.38 -0.08" color="#f8fafc"></a-sphere>
+      </a-entity>
+
+      <!-- Shadow plane follows reticle so shadows appear grounded. -->
+      <a-plane follow-shadow="#reticle" material="shader:shadow" shadow="cast:false;" rotation="-90 0 0" width="2" height="2"></a-plane>
+      <a-sky color="#bfe6ff" hide-on-enter-ar></a-sky>
     </a-scene>
   </body>
 </html>
