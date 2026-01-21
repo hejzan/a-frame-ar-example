@@ -123,11 +123,13 @@
         },
         init() {
           this._onMouseMove = this._onMouseMove.bind(this);
+          this._onTouchMove = this._onTouchMove.bind(this);
           this._onEnterVR = this._onEnterVR.bind(this);
           this._onExitVR = this._onExitVR.bind(this);
           this._raycaster = new THREE.Raycaster();
           this._mouse = new THREE.Vector2();
           this._tmpPoint = new THREE.Vector3();
+          this._hasPointer = false;
 
           this.el.sceneEl.addEventListener('enter-vr', this._onEnterVR);
           this.el.sceneEl.addEventListener('exit-vr', this._onExitVR);
@@ -139,17 +141,22 @@
           this.el.sceneEl.removeEventListener('enter-vr', this._onEnterVR);
           this.el.sceneEl.removeEventListener('exit-vr', this._onExitVR);
           window.removeEventListener('mousemove', this._onMouseMove);
+          window.removeEventListener('touchmove', this._onTouchMove);
         },
         _enableDesktopMode() {
           const {reticle, ground} = this.data;
           if (ground) ground.setAttribute('visible', true);
           if (reticle) reticle.setAttribute('visible', true);
           window.addEventListener('mousemove', this._onMouseMove);
+          // iPhone / iPad: allow moving reticle with finger drag.
+          window.addEventListener('touchmove', this._onTouchMove, {passive: true});
         },
         _disableDesktopMode() {
           const {ground} = this.data;
           if (ground) ground.setAttribute('visible', false);
           window.removeEventListener('mousemove', this._onMouseMove);
+          window.removeEventListener('touchmove', this._onTouchMove);
+          this._hasPointer = false;
         },
         _onEnterVR() {
           // In real AR mode, ar-hit-test will drive the reticle; hide the desktop ground.
@@ -159,7 +166,26 @@
           // Back to desktop simulation mode.
           this._enableDesktopMode();
         },
+        _setPointerFromClientXY(clientX, clientY) {
+          const sceneEl = this.el.sceneEl;
+          const rect = sceneEl.canvas?.getBoundingClientRect();
+          if (!rect) return false;
+
+          // Normalized Device Coordinates (-1..1).
+          this._mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+          this._mouse.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
+          this._hasPointer = true;
+          return true;
+        },
         _onMouseMove(e) {
+          this._setPointerFromClientXY(e.clientX, e.clientY);
+        },
+        _onTouchMove(e) {
+          if (!e.touches || e.touches.length === 0) return;
+          const t = e.touches[0];
+          this._setPointerFromClientXY(t.clientX, t.clientY);
+        },
+        tick() {
           const {reticle, ground} = this.data;
           if (!reticle || !ground) return;
 
@@ -167,16 +193,14 @@
           const camera = sceneEl.camera;
           if (!camera) return;
 
-          const rect = sceneEl.canvas?.getBoundingClientRect();
-          if (!rect) return;
-
-          // Normalized Device Coordinates (-1..1).
-          this._mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-          this._mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+          // If there's no mouse/touch pointer (e.g., mobile without dragging),
+          // fall back to screen center so iPhone users can still place objects.
+          if (!this._hasPointer) {
+            this._mouse.set(0, 0);
+          }
 
           this._raycaster.setFromCamera(this._mouse, camera);
 
-          // Intersect the ground plane mesh.
           const groundObj = ground.getObject3D('mesh');
           if (!groundObj) return;
           const hits = this._raycaster.intersectObject(groundObj, true);
