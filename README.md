@@ -46,6 +46,13 @@ AR needs **HTTPS**, so use GitHub Pages:
 
 Note: iPhone/iOS usually won’t run this WebXR AR hit-test flow, so don’t rely on it for the demo.
 
+### iPhone “camera mode” (pseudo‑AR)
+
+I added a button **Enable Camera** on the page.
+This turns on the phone camera and shows it behind the 3D scene, so it *looks* like AR.
+But it’s still not real plane detection (the placement is still on my fake plane / raycast).
+It’s mostly so I can show something closer to the assignment on iPhone.
+
 ## Notes (what I changed vs the starter)
 
 - starter repo was moving one object with `ar-hit-test="target: #objects"`
