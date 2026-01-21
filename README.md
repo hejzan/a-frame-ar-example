@@ -1,46 +1,52 @@
-# A-Frame AR Example
+# A-Frame AR Example (winter thing)
 
-Winter-themed AR demo based on the A-Frame AR example (A-Frame 1.7.1).
+This is my solution for **Exercise 05 (Virtual & Augmented Reality)**.
+It’s based on the example repo and uses **A-Frame 1.7.1**.
 
-## What it does
+## What it is / what you can do
 
-- Detects a **horizontal surface** (floor / table) in WebXR AR.
-- Shows a small **reticle** where a surface is detected.
-- **Tap to place** a winter object at the reticle (alternates between **snowman** and **pine tree**).
+Basically it’s a tiny winter AR “decorator”:
+- it tries to find a flat surface (floor/table) (in real AR)
+- it shows a small **reticle ring**
+- you **tap to place** an object at the reticle (I made **snowman** + **pine tree**)
+- it alternates snowman/tree so you can see both quickly
 
-## Local preview (no AR, just 3D)
+## Running it locally (no AR)
 
-You can preview the scene in any desktop browser with a simple static server:
+This works on any normal browser, it’s just the 3D scene (no real AR sensors):
 
 ```bash
 cd aframe-ar-example
 python -m http.server 8080
 ```
 
-Then open `http://localhost:8080`.
+Open: `http://localhost:8080`
 
-### Desktop “AR simulation” (no Android required)
+## Desktop “AR simulation” mode (because I don’t have Android)
 
-If you don’t have an Android phone, this project still demonstrates the intended AR interaction:
+So the original exercise wants WebXR AR hit-test (works mainly on **Chrome Android**).
+I don’t have an Android phone, so I added a simple fallback so I can still show the idea on my laptop:
 
-- A visible **ground plane** stands in for “the detected real-world plane”.
-- A **reticle** follows your mouse over the plane (raycast).
-- Click / tap places objects exactly like AR placement would.
+- there is a visible **ground plane** (pretend it’s the detected floor/table)
+- the **reticle follows the mouse** (raycast)
+- clicking places the snowman/tree at the reticle (same placement logic as AR)
 
-This is implemented via a small fallback component (`desktop-hit-test`) and is useful for explaining “how we wanted to solve it” during the exam.
+This is done in a small component called `desktop-hit-test`.
+It’s not “real AR”, but it demonstrates how I would solve the interaction (reticle + tap-to-place).
 
-## AR on Android (HTTPS required)
+## Hosting (HTTPS) for “real” AR
 
-AR hit-test only works reliably in **recent Chrome on Android**, and you must load the page over **HTTPS**.
+AR needs **HTTPS**, so use GitHub Pages:
 
-Recommended workflow:
+1. Push to GitHub
+2. Repo → **Settings → Pages**
+3. Source: *Deploy from branch*
+4. Branch: `main` and folder: `/ (root)`
+5. Wait a bit and open your Pages URL
 
-1. Create an empty GitHub repo (or fork this repo).
-2. Push your code to GitHub.
-3. Enable **Settings → Pages → Deploy from branch → `main` / (root)**.
-4. Open: `https://YOUR_GITHUB_USERNAME.github.io/aframe-ar-example/`
+Note: iPhone/iOS usually won’t run this WebXR AR hit-test flow, so don’t rely on it for the demo.
 
-## Notes for the exam
+## Notes (what I changed vs the starter)
 
-- The original example moved a single object with `ar-hit-test="target: #objects"`.
-- This version instead moves a **reticle** (`ar-hit-test="target: #reticle"`) and spawns **new clones on tap**.
+- starter repo was moving one object with `ar-hit-test="target: #objects"`
+- mine moves a **reticle** (`ar-hit-test="target: #reticle"`) and **spawns new objects on tap** (bonus task)
